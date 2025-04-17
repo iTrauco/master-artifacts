@@ -21,3 +21,10 @@ else
   git commit -m "Sync artifacts from downstream repos"
   git push
 fi
+
+
+
+# Add this near the bottom of the file:
+CURRENT_BRANCH=$(git branch --show-current)
+git commit -m "Sync artifacts from downstream repos"
+git push origin $CURRENT_BRANCH
