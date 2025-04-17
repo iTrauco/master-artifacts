@@ -1,0 +1,38 @@
+name: Sync Artifacts
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Run every hour
+    - cron: '0 * * * *'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: test-new
+          
+      - name: Clone downstream repos
+        run: |
+          git clone https://github.com/iTrauco/downstream-artifacts-repo-1.git repo1
+          git clone https://github.com/iTrauco/downstream-artifacts-repo-2.git repo2
+          
+      - name: Sync artifacts
+        run: |
+          # Create directories
+          mkdir -p projects/downstream-1
+          mkdir -p projects/downstream-2
+          
+          # Copy artifacts
+          cp -r repo1/artifacts/* projects/downstream-1/ 2>/dev/null || true
+          cp -r repo2/artifacts/* projects/downstream-2/ 2>/dev/null || true
+          
+      - name: Commit changes
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add projects/
+          git diff --staged --quiet || git commit -m "Auto-sync artifacts from downstream repos"
+          git push
