@@ -1,8 +1,8 @@
-# NEW VERSION - Original backed up to: orig.artifact-manager.v1_2025-04-17_20-05.sh 
-# Version date: Thu Apr 17 08:05:31 PM EDT 2025 
+# NEW VERSION - Original backed up to: orig.artifact-manager.v3_2025-04-17_20-19.sh 
+# Version date: Thu Apr 17 08:19:39 PM EDT 2025 
 # Git branch: test-new 
-# Last commit: Add usage documentation 
-#!/bin/bash
+# Last commit: debug: zsh shell syntax nuances breaking again 
+#!/bin/sh
 # Artifact manager - works in both Bash and Zsh
 
 # Colors
@@ -20,13 +20,12 @@ WORKSPACE="$HOME/Dev/artifacts-tracking"
 CONFIG_FILE="$MASTER_REPO/.artifact-config"
 
 # Load or create config
-if [[ -f "$CONFIG_FILE" ]]; then
-  source "$CONFIG_FILE"
+if [ -f "$CONFIG_FILE" ]; then
+  . "$CONFIG_FILE"
 else
   echo "# Artifact Tracking Configuration" > "$CONFIG_FILE"
-  # Array syntax compatible with both shells
-  echo "REPOS=(downstream-artifacts-repo-1 downstream-artifacts-repo-2)" >> "$CONFIG_FILE"
-  source "$CONFIG_FILE"
+  echo "REPOS=\"downstream-artifacts-repo-1 downstream-artifacts-repo-2\"" >> "$CONFIG_FILE"
+  . "$CONFIG_FILE"
 fi
 
 # Draw main menu
@@ -47,105 +46,179 @@ draw_menu() {
   echo -n -e "${CYAN}Select an option: ${NC}"
 }
 
-# Update config file - compatible with both shells
-update_config() {
-  echo "# Artifact Tracking Configuration" > "$CONFIG_FILE"
-  echo -n "REPOS=(" > "$CONFIG_FILE"
-  for repo in "${REPOS[@]}"; do
-    echo -n "$repo " >> "$CONFIG_FILE"
+# Function to sync artifacts
+sync_artifacts() {
+  echo -e "${GREEN}Syncing artifacts from all repos...${NC}"
+  
+  for repo in $REPOS; do
+    echo -e "${CYAN}Syncing $repo...${NC}"
+    mkdir -p "$MASTER_REPO/projects/$repo"
+    cp -r "$WORKSPACE/$repo/artifacts/"* "$MASTER_REPO/projects/$repo/" 2>/dev/null || true
   done
-  echo ")" >> "$CONFIG_FILE"
-  source "$CONFIG_FILE"
+  
+  cd "$MASTER_REPO" || exit
+  BRANCH=$(git branch --show-current)
+  git add projects/
+  if ! git diff --staged --quiet; then
+    git commit -m "Sync artifacts from all repos"
+    git push origin "$BRANCH"
+    echo -e "${GREEN}Changes committed and pushed${NC}"
+  else
+    echo -e "${YELLOW}No changes to commit${NC}"
+  fi
+  
+  echo -e "${GREEN}Sync complete!${NC}"
+  read -p "Press Enter to continue..."
 }
 
-# Setup gitignore
-setup_gitignore() {
-  local repo=$1
-  if [[ ! -f "$WORKSPACE/$repo/.gitignore" ]]; then
-    echo "artifacts/" > "$WORKSPACE/$repo/.gitignore"
+# Show stats
+show_stats() {
+  echo -e "${PURPLE}ARTIFACT STATISTICS${NC}"
+  
+  for repo in $REPOS; do
+    repo_count=$(find "$WORKSPACE/$repo/artifacts" -type f 2>/dev/null | wc -l | tr -d ' ')
+    master_count=$(find "$MASTER_REPO/projects/$repo" -type f 2>/dev/null | wc -l | tr -d ' ')
+    echo -e "${YELLOW}$repo:${NC} $repo_count files"
+    echo -e "${YELLOW}Master ($repo):${NC} $master_count files"
+  done
+  
+  echo ""
+  read -p "Press Enter to continue..."
+}
+
+# Create test artifacts
+create_test() {
+  echo -e "${PURPLE}Creating test artifacts...${NC}"
+  
+  echo -e "${YELLOW}Select repository:${NC}"
+  i=1
+  for repo in $REPOS; do
+    echo -e "${YELLOW}[$i]${NC} $repo"
+    i=$((i+1))
+  done
+  echo -e "${YELLOW}[b]${NC} Back to main menu"
+  
+  echo -n -e "${CYAN}Select repo: ${NC}"
+  read -r repo_choice
+  
+  if [ "$repo_choice" = "b" ]; then
+    return
+  fi
+  
+  # Get repo by index
+  i=1
+  for repo in $REPOS; do
+    if [ "$i" = "$repo_choice" ]; then
+      selected_repo=$repo
+      break
+    fi
+    i=$((i+1))
+  done
+  
+  if [ -n "$selected_repo" ]; then
+    cd "$WORKSPACE/$selected_repo" || return
+    echo "Test data $(date)" > "artifacts/test-$(date +%s).txt"
+    echo -e "${GREEN}Test artifact created in $selected_repo${NC}"
   else
-    if ! grep -q "artifacts/" "$WORKSPACE/$repo/.gitignore"; then
-      echo "artifacts/" >> "$WORKSPACE/$repo/.gitignore"
+    echo -e "${RED}Invalid selection${NC}"
+  fi
+  
+  read -p "Press Enter to continue..."
+}
+
+# Push changes to GitHub
+push_to_github() {
+  echo -e "${PURPLE}Push changes to GitHub${NC}"
+  
+  echo -e "${YELLOW}Select repository:${NC}"
+  echo -e "${YELLOW}[0]${NC} Master Repository"
+  
+  i=1
+  for repo in $REPOS; do
+    echo -e "${YELLOW}[$i]${NC} $repo"
+    i=$((i+1))
+  done
+  
+  echo -e "${YELLOW}[a]${NC} All Repositories"
+  echo -e "${YELLOW}[b]${NC} Back to main menu"
+  
+  echo -n -e "${CYAN}Select option: ${NC}"
+  read -r push_choice
+  
+  if [ "$push_choice" = "b" ]; then
+    return
+  fi
+  
+  if [ "$push_choice" = "0" ]; then
+    cd "$MASTER_REPO" || return
+    git add .
+    git commit -m "Update artifacts $(date)"
+    BRANCH=$(git branch --show-current)
+    git push origin "$BRANCH"
+    echo -e "${GREEN}Pushed Master Repo changes${NC}"
+  elif [ "$push_choice" = "a" ]; then
+    # Push all repos
+    for repo in $REPOS; do
+      cd "$WORKSPACE/$repo" || continue
+      git add .
+      git commit -m "Update artifacts $(date)"
+      git push origin main
+      echo -e "${GREEN}Pushed $repo changes${NC}"
+    done
+    
+    cd "$MASTER_REPO" || return
+    git add .
+    git commit -m "Update artifacts $(date)"
+    BRANCH=$(git branch --show-current)
+    git push origin "$BRANCH"
+    echo -e "${GREEN}Pushed all repos${NC}"
+  else
+    # Get repo by index
+    i=1
+    for repo in $REPOS; do
+      if [ "$i" = "$push_choice" ]; then
+        selected_repo=$repo
+        break
+      fi
+      i=$((i+1))
+    done
+    
+    if [ -n "$selected_repo" ]; then
+      cd "$WORKSPACE/$selected_repo" || return
+      git add .
+      git commit -m "Update artifacts $(date)"
+      git push origin main
+      echo -e "${GREEN}Pushed $selected_repo changes${NC}"
+    else
+      echo -e "${RED}Invalid selection${NC}"
     fi
   fi
-}
-
-# Setup push script
-setup_push_script() {
-  local repo=$1
-  mkdir -p "$WORKSPACE/$repo/scripts"
-  cat > "$WORKSPACE/$repo/scripts/push-artifacts.sh" << 'PUSHEOF'
-#!/bin/bash
-
-# Path to repos
-DOWNSTREAM_REPO="$(pwd)"
-MASTER_REPO="$HOME/Dev/artifacts-tracking/master-artifacts"
-REPO_NAME=$(basename "$DOWNSTREAM_REPO")
-
-# Copy artifacts to master repo
-mkdir -p "$MASTER_REPO/projects/$REPO_NAME"
-cp -r "$DOWNSTREAM_REPO/artifacts/"* "$MASTER_REPO/projects/$REPO_NAME/" 2>/dev/null || true
-
-# Commit and push changes to master repo
-cd "$MASTER_REPO" || return
-BRANCH=$(git branch --show-current)
-git add "projects/$REPO_NAME/"
-git diff --staged --quiet || (git commit -m "Sync artifacts from $REPO_NAME" && git push origin "$BRANCH")
-PUSHEOF
-  chmod +x "$WORKSPACE/$repo/scripts/push-artifacts.sh"
-}
-
-# Setup git hooks
-setup_git_hooks() {
-  local repo=$1
-  mkdir -p "$WORKSPACE/$repo/.git/hooks"
-  cat > "$WORKSPACE/$repo/.git/hooks/pre-commit" << 'PRECOMMITEOF'
-#!/bin/bash
-
-# Check if any artifacts files were modified
-if git diff --cached --name-only | grep -q "^artifacts/"; then
-  echo "Artifacts changed, will sync to master repo after commit"
-  echo "SYNC_ARTIFACTS=true" > .git/SYNC_ARTIFACTS
-fi
-exit 0
-PRECOMMITEOF
   
-  cat > "$WORKSPACE/$repo/.git/hooks/post-commit" << 'POSTCOMMITEOF'
-#!/bin/bash
-
-if [[ -f .git/SYNC_ARTIFACTS ]]; then
-  SYNC_ARTIFACTS=$(grep -o "true" .git/SYNC_ARTIFACTS)
-  if [[ "$SYNC_ARTIFACTS" == "true" ]]; then
-    echo "Syncing artifacts to master repo..."
-    ./scripts/push-artifacts.sh
-    rm .git/SYNC_ARTIFACTS
-  fi
-fi
-POSTCOMMITEOF
-  
-  chmod +x "$WORKSPACE/$repo/.git/hooks/pre-commit" "$WORKSPACE/$repo/.git/hooks/post-commit"
+  read -p "Press Enter to continue..."
 }
 
-# Add new project function
+# Add new project
 add_new_project() {
   echo -n -e "${CYAN}Enter new project repository name: ${NC}"
   read -r new_repo
   
   # Check if already exists
-  for repo in "${REPOS[@]}"; do
-    if [[ "$repo" == "$new_repo" ]]; then
+  for repo in $REPOS; do
+    if [ "$repo" = "$new_repo" ]; then
       echo -e "${RED}Repository already exists in the tracking system${NC}"
       read -p "Press Enter to continue..."
       return
     fi
   done
   
-  # Add to config - compatible with both shells
-  REPOS+=("$new_repo")
-  update_config
+  # Add to config
+  REPOS="$REPOS $new_repo"
+  echo "# Artifact Tracking Configuration" > "$CONFIG_FILE"
+  echo "REPOS=\"$REPOS\"" >> "$CONFIG_FILE"
+  . "$CONFIG_FILE"
   
   # Check if repo exists locally
-  if [[ ! -d "$WORKSPACE/$new_repo" ]]; then
+  if [ ! -d "$WORKSPACE/$new_repo" ]; then
     echo -e "${YELLOW}Repository doesn't exist locally. Do you want to:${NC}"
     echo -e "${CYAN}[1]${NC} Clone from GitHub"
     echo -e "${CYAN}[2]${NC} Create locally"
@@ -172,13 +245,65 @@ add_new_project() {
   
   # Set up artifacts directory and gitignore
   mkdir -p "$WORKSPACE/$new_repo/artifacts"
-  setup_gitignore "$new_repo"
   
-  # Create push script
-  setup_push_script "$new_repo"
+  # Setup gitignore
+  if [ ! -f "$WORKSPACE/$new_repo/.gitignore" ]; then
+    echo "artifacts/" > "$WORKSPACE/$new_repo/.gitignore"
+  else
+    if ! grep -q "artifacts/" "$WORKSPACE/$new_repo/.gitignore"; then
+      echo "artifacts/" >> "$WORKSPACE/$new_repo/.gitignore"
+    fi
+  fi
+  
+  # Setup push script
+  mkdir -p "$WORKSPACE/$new_repo/scripts"
+  cat > "$WORKSPACE/$new_repo/scripts/push-artifacts.sh" << EOF
+#!/bin/sh
+# Path to repos
+DOWNSTREAM_REPO="\$(pwd)"
+MASTER_REPO="$MASTER_REPO"
+REPO_NAME=\$(basename "\$DOWNSTREAM_REPO")
+
+# Copy artifacts to master repo
+mkdir -p "\$MASTER_REPO/projects/\$REPO_NAME"
+cp -r "\$DOWNSTREAM_REPO/artifacts/"* "\$MASTER_REPO/projects/\$REPO_NAME/" 2>/dev/null || true
+
+# Commit and push changes to master repo
+cd "\$MASTER_REPO" || exit
+BRANCH=\$(git branch --show-current)
+git add "projects/\$REPO_NAME/"
+git diff --staged --quiet || (git commit -m "Sync artifacts from \$REPO_NAME" && git push origin "\$BRANCH")
+EOF
+  chmod +x "$WORKSPACE/$new_repo/scripts/push-artifacts.sh"
   
   # Create Git hooks
-  setup_git_hooks "$new_repo"
+  mkdir -p "$WORKSPACE/$new_repo/.git/hooks"
+  
+  # Create pre-commit hook
+  cat > "$WORKSPACE/$new_repo/.git/hooks/pre-commit" << EOF
+#!/bin/sh
+# Check if any artifacts files were modified
+if git diff --cached --name-only | grep -q "^artifacts/"; then
+  echo "Artifacts changed, will sync to master repo after commit"
+  echo "SYNC_ARTIFACTS=true" > .git/SYNC_ARTIFACTS
+fi
+exit 0
+EOF
+  
+  # Create post-commit hook
+  cat > "$WORKSPACE/$new_repo/.git/hooks/post-commit" << EOF
+#!/bin/sh
+if [ -f .git/SYNC_ARTIFACTS ]; then
+  SYNC_ARTIFACTS=\$(grep -o "true" .git/SYNC_ARTIFACTS || echo "")
+  if [ "\$SYNC_ARTIFACTS" = "true" ]; then
+    echo "Syncing artifacts to master repo..."
+    ./scripts/push-artifacts.sh
+    rm .git/SYNC_ARTIFACTS
+  fi
+fi
+EOF
+  
+  chmod +x "$WORKSPACE/$new_repo/.git/hooks/pre-commit" "$WORKSPACE/$new_repo/.git/hooks/post-commit"
   
   # Create directory in master repo
   mkdir -p "$MASTER_REPO/projects/$new_repo"
@@ -187,23 +312,35 @@ add_new_project() {
   read -p "Press Enter to continue..."
 }
 
-# Remove project function
+# Remove project
 remove_project() {
   echo -n -e "${CYAN}Enter number of project to remove: ${NC}"
   read -r remove_idx
   
-  if [[ "$remove_idx" =~ ^[0-9]+$ ]] && [[ "$remove_idx" -ge 1 ]] && [[ "$remove_idx" -le "${#REPOS[@]}" ]]; then
-    removed_repo="${REPOS[$((remove_idx-1))]}"
-    
-    # Remove from config - compatible with both shells
-    new_repos=()
-    for i in "${!REPOS[@]}"; do
-      if [[ "$i" -ne "$((remove_idx-1))" ]]; then
-        new_repos+=("${REPOS[$i]}")
+  # Get repo by index
+  i=1
+  for repo in $REPOS; do
+    if [ "$i" = "$remove_idx" ]; then
+      removed_repo=$repo
+      break
+    fi
+    i=$((i+1))
+  done
+  
+  if [ -n "$removed_repo" ]; then
+    # Remove from REPOS
+    NEW_REPOS=""
+    for repo in $REPOS; do
+      if [ "$repo" != "$removed_repo" ]; then
+        NEW_REPOS="$NEW_REPOS $repo"
       fi
     done
-    REPOS=("${new_repos[@]}")
-    update_config
+    REPOS=$(echo "$NEW_REPOS" | xargs)
+    
+    # Update config file
+    echo "# Artifact Tracking Configuration" > "$CONFIG_FILE"
+    echo "REPOS=\"$REPOS\"" >> "$CONFIG_FILE"
+    . "$CONFIG_FILE"
     
     echo -e "${YELLOW}Do you want to remove the project directory from master repo?${NC}"
     echo -e "${CYAN}[y]${NC} Yes"
@@ -211,7 +348,7 @@ remove_project() {
     echo -n -e "${CYAN}Select option: ${NC}"
     read -r remove_option
     
-    if [[ "$remove_option" == "y" ]]; then
+    if [ "$remove_option" = "y" ]; then
       rm -rf "$MASTER_REPO/projects/$removed_repo"
       cd "$MASTER_REPO" || return
       git add projects/
@@ -237,9 +374,13 @@ manage_projects() {
     echo -e "${BLUE}╚════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "${YELLOW}Current Projects:${NC}"
-    for i in "${!REPOS[@]}"; do
-      echo -e "${CYAN}[$((i+1))]${NC} ${REPOS[$i]}"
+    
+    i=1
+    for repo in $REPOS; do
+      echo -e "${CYAN}[$i]${NC} $repo"
+      i=$((i+1))
     done
+    
     echo ""
     echo -e "${YELLOW}[a]${NC} Add new project"
     echo -e "${YELLOW}[r]${NC} Remove project"
@@ -264,148 +405,6 @@ manage_projects() {
         ;;
     esac
   done
-}
-
-# Function to sync artifacts
-sync_artifacts() {
-  echo -e "${GREEN}Syncing artifacts from all repos...${NC}"
-  
-  # Dynamically generate sync script
-  TMP_SCRIPT=$(mktemp)
-  cat > "$TMP_SCRIPT" << EOF
-#!/bin/bash
-
-# Path to repositories
-MASTER_REPO="$MASTER_REPO"
-
-EOF
-
-  # Add copy commands for each repo
-  for repo in "${REPOS[@]}"; do
-    echo "# Sync $repo" >> "$TMP_SCRIPT"
-    echo "mkdir -p \"\$MASTER_REPO/projects/$repo\"" >> "$TMP_SCRIPT"
-    echo "cp -r \"$WORKSPACE/$repo/artifacts/\"* \"\$MASTER_REPO/projects/$repo/\" 2>/dev/null || true" >> "$TMP_SCRIPT"
-  done
-  
-  # Add commit logic
-  cat >> "$TMP_SCRIPT" << 'INNEREOF'
-  
-# Commit changes if there are any
-cd "$MASTER_REPO" || exit
-CURRENT_BRANCH=$(git branch --show-current)
-git add projects/
-if ! git diff --staged --quiet; then
-  git commit -m "Sync artifacts from all repos"
-  git push origin "$CURRENT_BRANCH"
-fi
-INNEREOF
-
-  # Execute script
-  bash "$TMP_SCRIPT"
-  rm "$TMP_SCRIPT"
-  
-  echo -e "${GREEN}Sync complete!${NC}"
-  read -p "Press Enter to continue..."
-}
-
-# Show stats
-show_stats() {
-  echo -e "${PURPLE}ARTIFACT STATISTICS${NC}"
-  
-  for repo in "${REPOS[@]}"; do
-    repo_count=$(find "$WORKSPACE/$repo/artifacts" -type f 2>/dev/null | wc -l | tr -d ' ')
-    master_count=$(find "$MASTER_REPO/projects/$repo" -type f 2>/dev/null | wc -l | tr -d ' ')
-    echo -e "${YELLOW}$repo:${NC} $repo_count files"
-    echo -e "${YELLOW}Master ($repo):${NC} $master_count files"
-  done
-  
-  echo ""
-  read -p "Press Enter to continue..."
-}
-
-# Create test artifacts
-create_test() {
-  echo -e "${PURPLE}Creating test artifacts...${NC}"
-  
-  echo -e "${YELLOW}Select repository:${NC}"
-  for i in "${!REPOS[@]}"; do
-    echo -e "${YELLOW}[$((i+1))]${NC} ${REPOS[$i]}"
-  done
-  echo -e "${YELLOW}[b]${NC} Back to main menu"
-  
-  echo -n -e "${CYAN}Select repo: ${NC}"
-  read -r repo_choice
-  
-  if [[ "$repo_choice" == "b" ]]; then
-    return
-  fi
-  
-  if [[ "$repo_choice" =~ ^[0-9]+$ ]] && [[ "$repo_choice" -ge 1 ]] && [[ "$repo_choice" -le "${#REPOS[@]}" ]]; then
-    selected_repo="${REPOS[$((repo_choice-1))]}"
-    cd "$WORKSPACE/$selected_repo" || return
-    echo "Test data $(date)" > "artifacts/test-$(date +%s).txt"
-    echo -e "${GREEN}Test artifact created in $selected_repo${NC}"
-  else
-    echo -e "${RED}Invalid selection${NC}"
-  fi
-  
-  read -p "Press Enter to continue..."
-}
-
-# Push changes to GitHub
-push_to_github() {
-  echo -e "${PURPLE}Push changes to GitHub${NC}"
-  
-  echo -e "${YELLOW}Select repository:${NC}"
-  echo -e "${YELLOW}[0]${NC} Master Repository"
-  for i in "${!REPOS[@]}"; do
-    echo -e "${YELLOW}[$((i+1))]${NC} ${REPOS[$i]}"
-  done
-  echo -e "${YELLOW}[a]${NC} All Repositories"
-  echo -e "${YELLOW}[b]${NC} Back to main menu"
-  
-  echo -n -e "${CYAN}Select option: ${NC}"
-  read -r push_choice
-  
-  if [[ "$push_choice" == "b" ]]; then
-    return
-  fi
-  
-  if [[ "$push_choice" == "0" ]]; then
-    cd "$MASTER_REPO" || return
-    git add .
-    git commit -m "Update artifacts $(date)"
-    BRANCH=$(git branch --show-current)
-    git push origin "$BRANCH"
-    echo -e "${GREEN}Pushed Master Repo changes${NC}"
-  elif [[ "$push_choice" == "a" ]]; then
-    # Push all repos
-    for repo in "${REPOS[@]}"; do
-      cd "$WORKSPACE/$repo" || continue
-      git add .
-      git commit -m "Update artifacts $(date)"
-      git push origin main
-      echo -e "${GREEN}Pushed $repo changes${NC}"
-    done
-    
-    cd "$MASTER_REPO" || return
-    git add .
-    git commit -m "Update artifacts $(date)"
-    BRANCH=$(git branch --show-current)
-    git push origin "$BRANCH"
-    echo -e "${GREEN}Pushed all repos${NC}"
-  elif [[ "$push_choice" =~ ^[0-9]+$ ]] && [[ "$push_choice" -ge 1 ]] && [[ "$push_choice" -le "${#REPOS[@]}" ]]; then
-    selected_repo="${REPOS[$((push_choice-1))]}"
-    cd "$WORKSPACE/$selected_repo" || return
-    git add .
-    git commit -m "Update artifacts $(date)"
-    git push origin main
-    echo -e "${GREEN}Pushed $selected_repo changes${NC}"
-  else
-    echo -e "${RED}Invalid selection${NC}"
-  fi
-  
-  read -p "Press Enter to continue..."
 }
 
 # Main loop
