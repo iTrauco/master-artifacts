@@ -1,2 +1,2 @@
 # Artifact Tracking Configuration
-REPOS="downstream-artifacts-repo-1 downstream-artifacts-repo-2"
+REPOS="downstream-artifacts-repo-1 downstream-artifacts-repo-2 downstream-artifacts-repo-3"
